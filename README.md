@@ -67,9 +67,6 @@ train-schedule-reservation-system/
 
 ## Getting Started
 
-### Prerequisites
-- [List requirements — e.g., Node.js v18+, MySQL 8+, etc.]
-
 ### Installation
 
 ```bash

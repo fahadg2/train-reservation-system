@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Routes — TrainMS</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <style>
+    /* Apple Color Emoji webfont — forces Apple-style emojis on every device */
+    @font-face {
+      font-family: 'Apple Color Emoji';
+      src: url('https://cdn.jsdelivr.net/gh/samuelngs/apple-emoji-linux@latest/fonts/apple-emoji.ttf') format('truetype');
+      font-display: swap;
+    }
+    .apple-emoji,
+    .mobile-brand,
+    .logo-icon,
+    .success-icon,
+    .sidebar-toggle,
+    .modal-close {
+      font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+      font-style: normal;
+      font-weight: normal;
+      font-variant: normal;
+      text-transform: none;
+      line-height: 1;
+    }
+    body, h1, h2, h3, p, span, button, label, input, select, td, th, a {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+  <nav id="sidebar"></nav>
+
+  <div class="main-content">
+    <header class="mobile-header">
+      <span class="mobile-brand"><span class="apple-emoji">🚆</span> TrainMS</span>
+      <button class="sidebar-toggle" aria-label="Toggle navigation" onclick="toggleSidebar()"><span class="apple-emoji">🍔</span></button>
+    </header>
+
+    <div class="page-header">
+      <h1>Routes</h1>
+      <div class="page-header-actions">
+        <button class="btn btn-primary" onclick="openAddModal()">+ Add Route</button>
+      </div>
+    </div>
+
+    <div class="page-body">
+
+      <div class="stat-grid section" id="stat-grid"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2 id="table-heading">All Routes</h2>
+          <span id="table-count" class="text-muted"></span>
+        </div>
+        <div class="card-body">
+          <div class="filter-bar">
+            <div class="form-group">
+              <label for="search-input">Search by Name or ID</label>
+              <input type="text" id="search-input" placeholder="e.g. Northeast or R001">
+            </div>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Stops</th>
+                <th>Distance</th>
+                <th>Duration</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="routes-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Add / Edit Modal -->
+  <div class="modal-overlay" id="route-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Add Route</h3>
+        <button class="modal-close" aria-label="Close" onclick="closeModal('route-modal')"><span class="apple-emoji">❌</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="route-form" novalidate>
+          <input type="hidden" id="r-id">
+          <div class="form-group">
+            <label for="f-name">Route Name</label>
+            <input type="text" id="f-name" placeholder="e.g. Northeast Corridor">
+            <span class="error" id="f-name-err"></span>
+          </div>
+          <div class="form-group">
+            <label for="f-stops">Stops (comma-separated, at least 2)</label>
+            <input type="text" id="f-stops" placeholder="e.g. New York, Providence, Boston">
+            <span class="error" id="f-stops-err"></span>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="f-dist">Distance (km)</label>
+              <input type="number" id="f-dist" min="1" step="0.1" placeholder="e.g. 346">
+              <span class="error" id="f-dist-err"></span>
+            </div>
+            <div class="form-group">
+              <label for="f-dur">Duration (minutes)</label>
+              <input type="number" id="f-dur" min="1" step="1" placeholder="e.g. 210">
+              <span class="error" id="f-dur-err"></span>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('route-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitForm()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirm Modal -->
+  <div class="modal-overlay" id="del-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Confirm Delete</h3>
+        <button class="modal-close" aria-label="Close" onclick="closeModal('del-modal')"><span class="apple-emoji">❌</span></button>
+      </div>
+      <div class="modal-body">
+        <p id="del-confirm-text"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('del-modal')">Cancel</button>
+        <button class="btn btn-danger" id="del-confirm-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="js/routes.js"></script>
+</body>
+</html>

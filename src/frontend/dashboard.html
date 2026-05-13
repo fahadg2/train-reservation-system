@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — TrainMS</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+  <nav id="sidebar"></nav>
+
+  <div class="main-content">
+    <header class="mobile-header">
+      <span class="mobile-brand"><span class="emoji">🚆</span> TrainMS</span>
+      <button class="sidebar-toggle" aria-label="Toggle navigation" onclick="toggleSidebar()">☰</button>
+    </header>
+
+    <div class="page-header">
+      <h1 id="page-title">Dashboard</h1>
+      <div class="page-header-actions">
+        <span id="role-badge" class="badge"></span>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div id="dashboard-content"></div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    requireAuth(['Admin', 'Staff', 'Passenger']);
+    initStorage();
+    renderNav();
+
+    var user = getCurrentUser();
+    var role = user.role;
+    var chartInstance = null;
+
+    var badgeClass = { Admin: 'badge-danger', Staff: 'badge-info', Passenger: 'badge-success' };
+    var badge = document.getElementById('role-badge');
+    badge.textContent = role;
+    badge.className = 'badge ' + (badgeClass[role] || 'badge-gray');
+
+    async function renderDashboard() {
+      var container = document.getElementById('dashboard-content');
+      if (role === 'Admin') {
+        await renderAdmin(container);
+      } else if (role === 'Staff') {
+        await renderStaff(container);
+      } else {
+        await renderPassenger(container);
+      }
+    }
+
+    async function renderAdmin(container) {
+      var bookings   = await loadFromStorage(STORAGE_KEYS.bookings);
+      var passengers = await loadFromStorage(STORAGE_KEYS.passengers);
+      var trains     = await loadFromStorage(STORAGE_KEYS.trains);
+      var schedules  = await loadFromStorage(STORAGE_KEYS.schedules);
+      var revenue    = await loadFromStorage(STORAGE_KEYS.revenue);
+
+      var today          = new Date().toISOString().split('T')[0];
+      var activeBookings = bookings.filter(function(b) { return b.status === 'Active'; }).length;
+      var totalRevenue   = bookings.reduce(function(sum, b) { return b.status === 'Active' ? sum + b.fare : sum; }, 0);
+
+      // "Active trains today" = trains with a schedule today that still has seats
+      var trainsWithSeatsToday = {};
+      schedules.forEach(function(s) {
+        if (s.date === today && (s.seatsAvailable == null || s.seatsAvailable > 0)) {
+          trainsWithSeatsToday[s.trainId] = true;
+        }
+      });
+      var activeTrains = Object.keys(trainsWithSeatsToday).length;
+
+      var last7          = revenue.slice(-7);
+      var recent         = bookings.slice().reverse().slice(0, 5);
+
+      var recentRows = recent.length ? recent.map(function(b) {
+        var train = trains.find(function(t) { return t.id === b.trainId; });
+        return '<tr>' +
+          '<td>' + b.bookingId + '</td>' +
+          '<td>' + (train ? train.name : b.trainId) + '</td>' +
+          '<td>' + formatDate(b.date) + '</td>' +
+          '<td>' + formatCurrency(b.fare) + '</td>' +
+          '<td><span class="badge ' + (b.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + b.status + '</span></td>' +
+          '</tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="5">No records found</td></tr>';
+
+      container.innerHTML =
+        '<div class="stat-grid">' +
+          '<div class="stat-card"><div class="stat-icon blue">🎫</div><div><div class="stat-value">' + activeBookings + '</div><div class="stat-label">Active Bookings</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon green">💰</div><div><div class="stat-value">' + formatCurrency(totalRevenue) + '</div><div class="stat-label">Total Revenue</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon amber">🚆</div><div><div class="stat-value">' + activeTrains + '</div><div class="stat-label">Active Trains</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon red">👥</div><div><div class="stat-value">' + passengers.length + '</div><div class="stat-label">Total Passengers</div></div></div>' +
+        '</div>' +
+
+        '<div class="dashboard-grid section">' +
+          '<div class="card">' +
+            '<div class="card-header"><h2>Bookings — Last 7 Days</h2></div>' +
+            '<div class="card-body"><div class="chart-wrapper" id="chart-area"></div></div>' +
+          '</div>' +
+          '<div class="card">' +
+            '<div class="card-header"><h2>Recent Bookings</h2></div>' +
+            '<div class="table-wrapper">' +
+              '<table><thead><tr><th>ID</th><th>Train</th><th>Date</th><th>Fare</th><th>Status</th></tr></thead>' +
+              '<tbody>' + recentRows + '</tbody></table>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      renderChart(last7);
+    }
+
+    function renderChart(last7) {
+      var area = document.getElementById('chart-area');
+      if (!area) return;
+
+      if (typeof Chart !== 'undefined') {
+        area.innerHTML = '<canvas id="bookings-chart"></canvas>';
+        if (chartInstance) chartInstance.destroy();
+        var ctx = document.getElementById('bookings-chart').getContext('2d');
+        chartInstance = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: last7.map(function(r) { return r.date.slice(5); }),
+            datasets: [{
+              label: 'Bookings',
+              data: last7.map(function(r) { return r.totalBookings; }),
+              backgroundColor: '#0A2342',
+              borderRadius: 4,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+      } else {
+        var max = Math.max.apply(null, last7.map(function(r) { return r.totalBookings; })) || 1;
+        var barsHtml = last7.map(function(r) {
+          return '<div class="css-bar" data-v="' + r.totalBookings + '">' +
+            '<span class="css-bar-label">' + r.date.slice(5) + '</span>' +
+            '</div>';
+        }).join('');
+        area.innerHTML = '<div class="css-chart">' + barsHtml + '</div>';
+        area.querySelectorAll('.css-bar').forEach(function(bar) {
+          var v = parseInt(bar.getAttribute('data-v'), 10);
+          bar.style.height = Math.round(v / max * 130) + 'px';
+        });
+      }
+    }
+
+    async function renderStaff(container) {
+      var bookings   = await loadFromStorage(STORAGE_KEYS.bookings);
+      var passengers = await loadFromStorage(STORAGE_KEYS.passengers);
+      var trains     = await loadFromStorage(STORAGE_KEYS.trains);
+      var today      = new Date().toISOString().split('T')[0];
+      var todayCount = bookings.filter(function(b) { return b.date === today && b.status === 'Active'; }).length;
+      var recent     = bookings.slice().reverse().slice(0, 5);
+
+      var recentRows = recent.length ? recent.map(function(b) {
+        var train = trains.find(function(t) { return t.id === b.trainId; });
+        return '<tr>' +
+          '<td>' + b.bookingId + '</td>' +
+          '<td>' + (train ? train.name : b.trainId) + '</td>' +
+          '<td>' + formatDate(b.date) + '</td>' +
+          '<td>' + b.seats + '</td>' +
+          '<td>' + formatCurrency(b.fare) + '</td>' +
+          '<td><span class="badge ' + (b.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + b.status + '</span></td>' +
+          '</tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="6">No records found</td></tr>';
+
+      container.innerHTML =
+        '<div class="stat-grid">' +
+          '<div class="stat-card"><div class="stat-icon blue">🎫</div><div><div class="stat-value">' + todayCount + '</div><div class="stat-label">Today\'s Bookings</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon green">👥</div><div><div class="stat-value">' + passengers.length + '</div><div class="stat-label">Registered Passengers</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon amber">🚆</div><div><div class="stat-value">' + trains.length + '</div><div class="stat-label">Total Trains</div></div></div>' +
+        '</div>' +
+
+        '<div class="card section">' +
+          '<div class="card-header"><h2>Quick Actions</h2></div>' +
+          '<div class="card-body">' +
+            '<div class="quick-actions">' +
+              '<a href="search.html" class="quick-action"><span class="quick-action-icon">🔍</span><span class="quick-action-label">Search Trains</span></a>' +
+              '<a href="passengers.html" class="quick-action"><span class="quick-action-icon">👥</span><span class="quick-action-label">Manage Passengers</span></a>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-header"><h2>Recent Bookings</h2></div>' +
+          '<div class="table-wrapper">' +
+            '<table><thead><tr><th>ID</th><th>Train</th><th>Date</th><th>Seats</th><th>Fare</th><th>Status</th></tr></thead>' +
+            '<tbody>' + recentRows + '</tbody></table>' +
+          '</div>' +
+        '</div>';
+    }
+
+    async function renderPassenger(container) {
+      var bookings = await loadFromStorage(STORAGE_KEYS.bookings);
+      var trains   = await loadFromStorage(STORAGE_KEYS.trains);
+      var pid      = user.passengerId;
+      var myRecent = bookings.filter(function(b) { return b.passengerId === pid; }).slice(-3).reverse();
+
+      var myRows = myRecent.length ? myRecent.map(function(b) {
+        var train = trains.find(function(t) { return t.id === b.trainId; });
+        return '<tr>' +
+          '<td>' + b.bookingId + '</td>' +
+          '<td>' + (train ? train.name : b.trainId) + '</td>' +
+          '<td>' + formatDate(b.date) + '</td>' +
+          '<td>' + b.class + '</td>' +
+          '<td>' + formatCurrency(b.fare) + '</td>' +
+          '<td><span class="badge ' + (b.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + b.status + '</span></td>' +
+          '</tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="6">No bookings yet</td></tr>';
+
+      container.innerHTML =
+        '<div class="info-box success section">Welcome back, <strong>' + user.displayName + '</strong>! Manage your train reservations below.</div>' +
+
+        '<div class="card section">' +
+          '<div class="card-header"><h2>Quick Actions</h2></div>' +
+          '<div class="card-body">' +
+            '<div class="quick-actions">' +
+              '<a href="search.html" class="quick-action"><span class="quick-action-icon">🔍</span><span class="quick-action-label">Search Trains</span></a>' +
+              '<a href="search.html" class="quick-action"><span class="quick-action-icon">🎫</span><span class="quick-action-label">Search & Book</span></a>' +
+              '<a href="my-bookings.html" class="quick-action"><span class="quick-action-icon">📋</span><span class="quick-action-label">My Bookings</span></a>' +
+              '<a href="cancellation.html" class="quick-action"><span class="quick-action-icon">❌</span><span class="quick-action-label">Cancel Ticket</span></a>' +
+            '</div>' +
+          '</div>' +
+        '</div>'+
+
+        '<div class="card">' +
+          '<div class="card-header">' +
+            '<h2>My Recent Bookings</h2>' +
+            '<a href="my-bookings.html" class="btn btn-secondary btn-sm">View All</a>' +
+          '</div>' +
+          '<div class="table-wrapper">' +
+            '<table><thead><tr><th>Booking ID</th><th>Train</th><th>Date</th><th>Class</th><th>Fare</th><th>Status</th></tr></thead>' +
+            '<tbody>' + myRows + '</tbody></table>' +
+          '</div>' +
+        '</div>';
+    }
+
+    renderDashboard();
+  </script>
+</body>
+</html>

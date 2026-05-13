@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Bookings — TrainMS</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <style>
+    /* Apple Color Emoji webfont — forces Apple-style emojis on every device */
+    @font-face {
+      font-family: 'Apple Color Emoji';
+      src: url('https://cdn.jsdelivr.net/gh/samuelngs/apple-emoji-linux@latest/fonts/apple-emoji.ttf') format('truetype');
+      font-display: swap;
+    }
+    .apple-emoji,
+    .mobile-brand,
+    .logo-icon,
+    .success-icon,
+    .sidebar-toggle,
+    .modal-close {
+      font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+      font-style: normal;
+      font-weight: normal;
+      font-variant: normal;
+      text-transform: none;
+      line-height: 1;
+    }
+    body, h1, h2, h3, p, span, button, label, input, select, td, th, a {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+  <nav id="sidebar"></nav>
+
+  <div class="main-content">
+    <header class="mobile-header">
+      <span class="mobile-brand"><span class="apple-emoji">🚆</span> TrainMS</span>
+      <button class="sidebar-toggle" aria-label="Toggle navigation" onclick="toggleSidebar()"><span class="apple-emoji">🍔</span></button>
+    </header>
+
+    <div class="page-header">
+      <h1>My Bookings</h1>
+      <div class="page-header-actions">
+        <a href="search.html" class="btn btn-primary btn-sm">+ New Booking</a>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="filter-tabs" id="filter-tabs">
+        <button class="filter-tab active" data-status="All">All</button>
+        <button class="filter-tab" data-status="Active">Active</button>
+        <button class="filter-tab" data-status="Cancelled">Cancelled</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2 id="bookings-heading">All Bookings</h2>
+          <span id="bookings-count" class="text-muted"></span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Booking ID</th>
+                <th>Train</th>
+                <th>Route</th>
+                <th>Date</th>
+                <th>Class</th>
+                <th>Seats</th>
+                <th>Fare</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="bookings-body">
+              <tr class="empty-row"><td colspan="9">No bookings found</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="js/my-bookings.js"></script>
+</body>
+</html>

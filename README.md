@@ -41,8 +41,7 @@ The system follows a **Layered (N-Tier) Architecture** for modularity, scalabili
 ## Technologies Used
 
 - **Frontend:** HTML, CSS, JavaScript
-- **Backend:** [Add your backend tech here — e.g., Node.js / PHP / Python]
-- **Database:** [Add your DB — e.g., MySQL / MongoDB]
+- **Supabase** For Backend and Database
 - **Version Control:** Git & GitHub
 
 ---
@@ -55,9 +54,9 @@ train-schedule-reservation-system/
 ├── docs/                  # Documentation (Phase 1, 2, 3 reports)
 ├── src/                   # Source code
 │   ├── frontend/          # UI files
-│   ├── backend/           # Server-side logic
-│   └── database/          # DB schemas and scripts
-├── diagrams/              # UML diagrams (Use Case, Class, Sequence, Activity)
+├── supabase/
+│   ├── .temp
+│   ├── migration/
 ├── scrum/                 # Excel Scrum sheets and Product Backlog
 ├── presentation/          # Final PowerPoint presentation
 └── README.md

@@ -55,7 +55,6 @@ train-schedule-reservation-system/
 ├── src/                   # Source code
 │   ├── frontend/          # UI files
 ├── supabase/
-│   ├── .temp
 │   ├── migration/
 ├── scrum/                 # Excel Scrum sheets and Product Backlog
 ├── presentation/          # Final PowerPoint presentation

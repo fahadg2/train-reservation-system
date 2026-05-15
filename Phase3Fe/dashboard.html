@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — TrainMS</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+  <nav id="sidebar"></nav>
+
+  <div class="main-content">
+    <header class="mobile-header">
+      <span class="mobile-brand"><span class="emoji">🚆</span> TrainMS</span>
+      <button class="sidebar-toggle" aria-label="Toggle navigation" onclick="toggleSidebar()">☰</button>
+    </header>
+
+    <div class="page-header">
+      <h1 id="page-title">Dashboard</h1>
+      <div class="page-header-actions">
+        <span id="role-badge" class="badge"></span>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div id="dashboard-content"></div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    requireAuth(['Admin', 'Staff', 'Passenger']);
+    initStorage();
+    renderNav();
+
+    var user = getCurrentUser();
+    var role = user.role;
+    var chartInstance = null;
+
+    var badgeClass = { Admin: 'badge-danger', Staff: 'badge-info', Passenger: 'badge-success' };
+    var badge = document.getElementById('role-badge');
+    badge.textContent = role;
+    badge.className = 'badge ' + (badgeClass[role] || 'badge-gray');
+
+    async function renderDashboard() {
+      var container = document.getElementById('dashboard-content');
+      if (role === 'Admin') {
+        await renderAdmin(container);
+      } else if (role === 'Staff') {
+        await renderStaff(container);
+      } else {
+        await renderPassenger(container);
+      }
+    }
+
+    async function renderAdmin(container) {
+      var bookings   = await loadFromStorage(STORAGE_KEYS.bookings);
+      var passengers = await loadFromStorage(STORAGE_KEYS.passengers);
+      var trains     = await loadFromStorage(STORAGE_KEYS.trains);
+      var schedules  = await loadFromStorage(STORAGE_KEYS.schedules);
+
+      var today          = new Date().toISOString().split('T')[0];
+      var activeBookings = bookings.filter(function(b) { return b.status === 'Active'; }).length;
+      var totalRevenue   = bookings.reduce(function(sum, b) { return b.status === 'Active' ? sum + b.fare : sum; }, 0);
+
+      // "Active trains today" = trains with a schedule today that still has seats
+      var trainsWithSeatsToday = {};
+      schedules.forEach(function(s) {
+        if (s.date === today && (s.seatsAvailable == null || s.seatsAvailable > 0)) {
+          trainsWithSeatsToday[s.trainId] = true;
+        }
+      });
+      var activeTrains = Object.keys(trainsWithSeatsToday).length;
+
+      // Build the last-7-days chart data straight from bookings, NOT from
+      // the legacy revenue table (which nothing writes to anymore). We
+      // count bookings by *travel date* — i.e. the date the trip departs.
+      // For a "what's coming up" view this is the most useful framing.
+      // Window: today through today+6.
+      var last7 = [];
+      for (var i = 0; i < 7; i++) {
+        var d = new Date();
+        d.setDate(d.getDate() + i);
+        var iso = d.toISOString().split('T')[0];
+        var count = bookings.filter(function(b) {
+          return b.date === iso && b.status === 'Active';
+        }).length;
+        last7.push({ date: iso, totalBookings: count });
+      }
+
+      // Show 5 most recent bookings in a slim 4-column table.
+      // Train/Date are dropped since View All has them in full.
+      var recent         = bookings.slice().reverse().slice(0, 5);
+
+      var recentRows = recent.length ? recent.map(function(b) {
+        var pax = passengers.find(function(p) { return p.id === b.passengerId; });
+        var paxName = pax ? pax.name : (b.passengerId || '—');
+        // Truncate the long auto-generated booking ID — display the
+        // last 6 chars, which are unique enough for at-a-glance use.
+        var shortId = b.bookingId.length > 7
+          ? b.bookingId.slice(0, 1) + '…' + b.bookingId.slice(-5)
+          : b.bookingId;
+        return '<tr>' +
+          '<td><strong title="' + b.bookingId + '">' + shortId + '</strong></td>' +
+          '<td>' + paxName + '</td>' +
+          '<td>' + formatCurrency(b.fare) + '</td>' +
+          '<td><span class="badge ' + (b.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + b.status + '</span></td>' +
+          '</tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="4">No records found</td></tr>';
+
+      container.innerHTML =
+        '<div class="stat-grid">' +
+          '<div class="stat-card"><div class="stat-icon blue">🎫</div><div><div class="stat-value">' + activeBookings + '</div><div class="stat-label">Active Bookings</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon green">💰</div><div><div class="stat-value">' + formatCurrency(totalRevenue) + '</div><div class="stat-label">Total Revenue</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon amber">🚆</div><div><div class="stat-value">' + activeTrains + '</div><div class="stat-label">Active Trains</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon red">👥</div><div><div class="stat-value">' + passengers.length + '</div><div class="stat-label">Total Passengers</div></div></div>' +
+        '</div>' +
+
+        '<div class="dashboard-grid section">' +
+          '<div class="card">' +
+            '<div class="card-header"><h2>Bookings — Next 7 Days</h2></div>' +
+            '<div class="card-body"><div class="chart-wrapper" id="chart-area"></div></div>' +
+          '</div>' +
+          '<div class="card">' +
+            '<div class="card-header">' +
+              '<h2>Recent Bookings</h2>' +
+              '<a href="all-bookings.html" class="btn btn-secondary btn-sm">View All</a>' +
+            '</div>' +
+            '<div class="table-wrapper">' +
+              '<table><thead><tr><th>ID</th><th>Passenger</th><th>Fare</th><th>Status</th></tr></thead>' +
+              '<tbody>' + recentRows + '</tbody></table>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      renderChart(last7);
+    }
+
+    function renderChart(last7) {
+      var area = document.getElementById('chart-area');
+      if (!area) return;
+
+      // last7 always has 7 entries; an "empty" state means every count is 0.
+      var allZero = last7.every(function(r) { return r.totalBookings === 0; });
+      if (allZero) {
+        area.innerHTML =
+          '<div style="display: flex; align-items: center; justify-content: center; ' +
+          'height: 100%; min-height: 200px; color: var(--text-muted, #888); ' +
+          'font-size: 0.875rem; text-align: center; padding: 24px;">' +
+          'No bookings scheduled in the next 7 days.' +
+          '</div>';
+        return;
+      }
+
+      if (typeof Chart !== 'undefined') {
+        area.innerHTML = '<canvas id="bookings-chart"></canvas>';
+        if (chartInstance) chartInstance.destroy();
+        var ctx = document.getElementById('bookings-chart').getContext('2d');
+        chartInstance = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: last7.map(function(r) { return r.date.slice(5); }),
+            datasets: [{
+              label: 'Bookings',
+              data: last7.map(function(r) { return r.totalBookings; }),
+              backgroundColor: '#0A2342',
+              borderRadius: 4,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+      } else {
+        var max = Math.max.apply(null, last7.map(function(r) { return r.totalBookings; })) || 1;
+        var barsHtml = last7.map(function(r) {
+          return '<div class="css-bar" data-v="' + r.totalBookings + '">' +
+            '<span class="css-bar-label">' + r.date.slice(5) + '</span>' +
+            '</div>';
+        }).join('');
+        area.innerHTML = '<div class="css-chart">' + barsHtml + '</div>';
+        area.querySelectorAll('.css-bar').forEach(function(bar) {
+          var v = parseInt(bar.getAttribute('data-v'), 10);
+          bar.style.height = Math.round(v / max * 130) + 'px';
+        });
+      }
+    }
+
+    async function renderStaff(container) {
+      var bookings   = await loadFromStorage(STORAGE_KEYS.bookings);
+      var passengers = await loadFromStorage(STORAGE_KEYS.passengers);
+      var trains     = await loadFromStorage(STORAGE_KEYS.trains);
+      var today      = new Date().toISOString().split('T')[0];
+      var todayCount = bookings.filter(function(b) { return b.date === today && b.status === 'Active'; }).length;
+      var recent     = bookings.slice().reverse().slice(0, 5);
+
+      var recentRows = recent.length ? recent.map(function(b) {
+        var train = trains.find(function(t) { return t.id === b.trainId; });
+        return '<tr>' +
+          '<td>' + b.bookingId + '</td>' +
+          '<td>' + (train ? train.name : b.trainId) + '</td>' +
+          '<td>' + formatDate(b.date) + '</td>' +
+          '<td>' + b.seats + '</td>' +
+          '<td>' + formatCurrency(b.fare) + '</td>' +
+          '<td><span class="badge ' + (b.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + b.status + '</span></td>' +
+          '</tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="6">No records found</td></tr>';
+
+      container.innerHTML =
+        '<div class="stat-grid">' +
+          '<div class="stat-card"><div class="stat-icon blue">🎫</div><div><div class="stat-value">' + todayCount + '</div><div class="stat-label">Today\'s Bookings</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon green">👥</div><div><div class="stat-value">' + passengers.length + '</div><div class="stat-label">Registered Passengers</div></div></div>' +
+          '<div class="stat-card"><div class="stat-icon amber">🚆</div><div><div class="stat-value">' + trains.length + '</div><div class="stat-label">Total Trains</div></div></div>' +
+        '</div>' +
+
+        '<div class="card section">' +
+          '<div class="card-header"><h2>Quick Actions</h2></div>' +
+          '<div class="card-body">' +
+            '<div class="quick-actions">' +
+              '<a href="search.html" class="quick-action"><span class="quick-action-icon">🔍</span><span class="quick-action-label">Search Trains</span></a>' +
+              '<a href="passengers.html" class="quick-action"><span class="quick-action-icon">👥</span><span class="quick-action-label">Manage Passengers</span></a>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-header"><h2>Recent Bookings</h2></div>' +
+          '<div class="table-wrapper">' +
+            '<table><thead><tr><th>ID</th><th>Train</th><th>Date</th><th>Seats</th><th>Fare</th><th>Status</th></tr></thead>' +
+            '<tbody>' + recentRows + '</tbody></table>' +
+          '</div>' +
+        '</div>';
+    }
+
+    async function renderPassenger(container) {
+      var bookings = await loadFromStorage(STORAGE_KEYS.bookings);
+      var trains   = await loadFromStorage(STORAGE_KEYS.trains);
+      var pid      = user.passengerId;
+      var myRecent = bookings.filter(function(b) { return b.passengerId === pid; }).slice(-3).reverse();
+
+      var myRows = myRecent.length ? myRecent.map(function(b) {
+        var train = trains.find(function(t) { return t.id === b.trainId; });
+        return '<tr>' +
+          '<td>' + b.bookingId + '</td>' +
+          '<td>' + (train ? train.name : b.trainId) + '</td>' +
+          '<td>' + formatDate(b.date) + '</td>' +
+          '<td>' + b.class + '</td>' +
+          '<td>' + formatCurrency(b.fare) + '</td>' +
+          '<td><span class="badge ' + (b.status === 'Active' ? 'badge-success' : 'badge-danger') + '">' + b.status + '</span></td>' +
+          '</tr>';
+      }).join('') : '<tr class="empty-row"><td colspan="6">No bookings yet</td></tr>';
+
+      container.innerHTML =
+        '<div class="info-box success section">Welcome back, <strong>' + user.displayName + '</strong>! Manage your train reservations below.</div>' +
+
+        '<div class="card section">' +
+          '<div class="card-header"><h2>Quick Actions</h2></div>' +
+          '<div class="card-body">' +
+            '<div class="quick-actions">' +
+              '<a href="search.html" class="quick-action"><span class="quick-action-icon">🔍</span><span class="quick-action-label">Search Trains</span></a>' +
+              '<a href="search.html" class="quick-action"><span class="quick-action-icon">🎫</span><span class="quick-action-label">Search & Book</span></a>' +
+              '<a href="my-bookings.html" class="quick-action"><span class="quick-action-icon">📋</span><span class="quick-action-label">My Bookings</span></a>' +
+              '<a href="cancellation.html" class="quick-action"><span class="quick-action-icon">❌</span><span class="quick-action-label">Cancel Ticket</span></a>' +
+            '</div>' +
+          '</div>' +
+        '</div>'+
+
+        '<div class="card">' +
+          '<div class="card-header">' +
+            '<h2>My Recent Bookings</h2>' +
+            '<a href="my-bookings.html" class="btn btn-secondary btn-sm">View All</a>' +
+          '</div>' +
+          '<div class="table-wrapper">' +
+            '<table><thead><tr><th>Booking ID</th><th>Train</th><th>Date</th><th>Class</th><th>Fare</th><th>Status</th></tr></thead>' +
+            '<tbody>' + myRows + '</tbody></table>' +
+          '</div>' +
+        '</div>';
+    }
+
+    renderDashboard();
+  </script>
+</body>
+</html>
